@@ -1,88 +1,88 @@
 # SED1115-PB-Final
-from machine import Pin, UART, I2C
-import utime
-from ads1x15 import ADS1015
-import adc1  # Your config with pins and address
+from machine import Pin, UART, I2C         # Import classes for controlling pins, UART, and I2C
+import utime                               # Import module for timing functions like sleep
+from ads1x15 import ADS1015                # Import the ADS1015 class to use the external ADC
+import adc1                                # Import your custom settings (I2C pins, ADC address, channel)
 
-# === Initialize I2C bus with pins defined in adc1.py ===
+# Set up I2C communication using the correct pins from your settings file
 i2c = I2C(1, sda=Pin(adc1.I2C_SDA_PIN), scl=Pin(adc1.I2C_SCL_PIN))
 
-# === Initialize ADS1015 ADC on the I2C bus with configured address ===
-ads1015_adc = ADS1015(i2c, adc1.ADS1015_ADDR, gain=1)  # gain=1 for +-4.096V range
+# Create an object to control the ADS1015 external ADC using I2C and its address
+ads1015_adc = ADS1015(i2c, adc1.ADS1015_ADDR, gain=1)  # gain=1 sets voltage range to +-4.096V
 
-# === UART1 setup for TX on GP4, RX on GP5 at 9600 baud ===
+# Set up UART1 communication on GPIO4 (TX) and GPIO5 (RX) at 9600 baud rate
 uart = UART(1, baudrate=9600, tx=Pin(4), rx=Pin(5))
 
-# ADS1015 channel to read analog input (e.g. channel 0)
-adc_channel = adc1.ADS1015_PWM_CHANNEL  # Usually 2 as per your adc1.py
+# Determine which ADS1015 channel to use for reading the potentiometer (usually channel 2)
+adc_channel = adc1.ADS1015_PWM_CHANNEL
 
 def read_analog_percent():
     """
-    Read raw ADC value from ADS1015 on configured channel.
-    Convert raw reading to 0-100% scale.
+    Get raw analog value from ADC and return it as a percent (0-100).
     """
     try:
-        raw_adc_value = ads1015_adc.read(4, adc_channel)  # 4 = 1600 samples/sec rate per ads1x15.py default
-        # ADS1015 is 16-bit signed: range approx -32768 to +32767, make unsigned 0 to 65535 for percentage
+        # Read analog value from the specified ADC channel at 1600 samples per second
+        raw_adc_value = ads1015_adc.read(4, adc_channel)
+        # If the value is negative (because ADC is signed), shift it to positive range
         if raw_adc_value < 0:
-            raw_adc_value += 65536  # Convert signed to unsigned by adding 2^16
+            raw_adc_value += 65536
+        # Convert the value (0 to 65535) to a percentage (0 to 100)
         percent = int((raw_adc_value / 65535) * 100)
-        # Clamp percentage to 0-100 just in case
+        # Make sure percent value isn't less than 0 or more than 100
         if percent < 0:
             percent = 0
         elif percent > 100:
             percent = 100
-        return percent
+        return percent                        # Return the calculated percent
     except Exception as e:
-        print("ADC read error:", e)
-        return 0  # Return safe default
+        print("ADC read error:", e)           # Print an error if something goes wrong reading ADC
+        return 0                              # Return 0 if read fails
 
 def send_uart_message(message):
     """
-    Send a text message over UART, ending with newline.
+    Send a message string to the other Pico using UART.
     """
     try:
-        uart.write((message + '\n').encode())
+        uart.write((message + '\n').encode()) # Send message as bytes with '\n' at the end
     except Exception as e:
-        print("UART send error:", e)
+        print("UART send error:", e)          # Print an error if UART write fails
 
 def receive_uart_message(timeout_ms=1000):
     """
-    Receive a line message from UART with a timeout.
-    Returns string or None.
+    Wait for a message from UART for up to given time (milliseconds),
+    then return the message as a string, or None if not received.
     """
-    start_time = utime.ticks_ms()
+    start_time = utime.ticks_ms()             # Get the current time in ms
     while utime.ticks_diff(utime.ticks_ms(), start_time) < timeout_ms:
-        if uart.any():
-            line = uart.readline()
+        if uart.any():                        # If there is data waiting in UART buffer
+            line = uart.readline()            # Read a line (ends at '\n')
             if line:
                 try:
-                    return line.decode().strip()
+                    return line.decode().strip() # Convert bytes to string and remove extra spaces
                 except:
-                    return None
-    return None
+                    return None               # If decoding fails, return None
+    return None                               # If timeout is reached, return None
 
 def main_loop():
     while True:
-        # Read analog percentage from ADS1015
-        pot_percent = read_analog_percent()
-        print("Local potentiometer value:", pot_percent, "%")
+        pot_percent = read_analog_percent()   # Get potentiometer value as a percentage from ADC
+        print("Local potentiometer value:", pot_percent, "%")     # Show our value on the screen
         
-        # Send this value using UART with a "POT:" label
-        send_uart_message("POT:" + str(pot_percent))
+        send_uart_message("POT:" + str(pot_percent))              # Send our value to partner Pico
         
-        # Attempt to receive partner's potentiometer value over UART
-        incoming = receive_uart_message()
+        incoming = receive_uart_message()        # Try to receive potentiometer value from other Pico
         if incoming and incoming.startswith("POT:"):
             try:
+                # Get just the number from the received message
                 partner_percent = int(incoming.split(":")[1])
-                print("Received partner potentiometer:", partner_percent, "%")
+                print("Received partner potentiometer:", partner_percent, "%") # Show received value
             except ValueError:
-                print("Received invalid data:", incoming)
+                print("Received invalid data:", incoming)     # Handle messages that can't be parsed as numbers
         else:
-            print("No valid potentiometer data from partner")
+            print("No valid potentiometer data from partner") # No good message was received
         
-        utime.sleep(1)  # 1-second delay for next cycle
+        utime.sleep(1)                        # Wait 1 second before repeating everything
 
-# Start the program
+# Start running the main loop forever
 main_loop()
+
