@@ -26,8 +26,12 @@ last_message_time = time.ticks_ms()
 def send_message(message_text):
     """
     Send a string message over UART, adding newline for termination.
+    Handles and prints UART transmission errors if any occur.
     """
-    uart_device.write((message_text + "\n").encode())
+    try:
+        uart_device.write((message_text + "\n").encode())
+    except Exception as error:
+        print("UART transmission error:", error)  # Log the error for debugging
 
 
 def receive_message(timeout_ms=2000):
@@ -63,22 +67,17 @@ def get_potentiometer_percentage():
     try:
         # Read raw signed value from ADC (1600 samples/s rate, configured adc channel)
         raw_adc_value = adc1.adc.read(4, adc_channel_number)
-
         # Convert from signed int to unsigned if negative
         if raw_adc_value < 0:
             raw_adc_value += 65536
-
         # Map 0-65535 to 0-100 percentage scale
         percentage = int((raw_adc_value / 65535) * 100)
-
         # Limit percentage between 0 and 100
         if percentage < 0:
             percentage = 0
         elif percentage > 100:
             percentage = 100
-
         return percentage
-
     except Exception as error:
         print("Error reading ADC:", error)
         return 0  # Return zero to indicate error safely
@@ -89,14 +88,13 @@ print(f"Starting UART communication on UART{UART_CHANNEL} (TX={UART_TX_PIN}, RX=
 
 while True:
     current_time = time.ticks_ms()  # Get current timestamp in milliseconds
-
     # Check if it is time to send a new message
     if time.ticks_diff(current_time, last_message_time) > send_interval_seconds * 1000:
         pot_percent = get_potentiometer_percentage()              # Read potentiometer %
         message_to_send = f"SET:{pot_percent}"                    # Format message string
-        send_message(message_to_send)                              # Send over UART
+        send_message(message_to_send)                             # Send over UART with error handling
         print("Sent message:", message_to_send)                   # Show message in console
-        last_message_time = current_time                           # Reset timer
+        last_message_time = current_time                          # Reset timer
 
     # Listen for an incoming UART message for up to 200 ms
     incoming_message = receive_message(timeout_ms=200)
@@ -107,12 +105,14 @@ while True:
             try:
                 incoming_value = float(incoming_message[4:])
                 echo_message = f"MEAS:{incoming_value:.1f}"
-                send_message(echo_message)                         # Send back measurement
+                send_message(echo_message)  # UART transmission error handled in send_message
                 print(f"Received: {incoming_message} | Replied: {echo_message}")
             except:
-                send_message("ERR")                                # Error reply
+                send_message("ERR")         # Even error replies will be safely handled
         elif incoming_message.startswith("MEAS:"):
             # Display measurement values received from partner
             print("Measurement received:", incoming_message[5:])
+
+    time.sleep(0.05)  # Small delay to reduce CPU load across loop iterations
 
     time.sleep(0.05)  # Small delay to reduce CPU load across loop iterations
