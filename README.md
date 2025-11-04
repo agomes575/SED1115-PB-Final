@@ -115,4 +115,3 @@ while True:
 
     time.sleep(0.05)  # Small delay to reduce CPU load across loop iterations
 
-    time.sleep(0.05)  # Small delay to reduce CPU load across loop iterations
